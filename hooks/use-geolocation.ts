@@ -26,6 +26,11 @@ export const useGeolocation = (useMetric: boolean): UseGeolocationReturn => {
   const [lastPosition, setLastPosition] = useState<GeolocationPosition | null>(null);
   const { toast } = useToast();
 
+  // Convert m/s to desired unit
+  const convertSpeed = (speedInMS: number): number => {
+    return useMetric ? speedInMS * 3.6 : speedInMS * 2.237;
+  };
+
   const calculateSmoothedSpeed = (rawSpeed: number): number => {
     const newBuffer = [...speedBuffer, rawSpeed].slice(-SPEED_BUFFER_SIZE);
     setSpeedBuffer(newBuffer);
@@ -41,18 +46,19 @@ export const useGeolocation = (useMetric: boolean): UseGeolocationReturn => {
     setError(null);
     
     // Get raw speed in m/s
-    const rawSpeed = position.coords.speed || 0;
+    const rawSpeed = position.coords.speed !== null ? position.coords.speed : 0;
     
     // Apply smoothing and threshold
     const smoothedSpeed = calculateSmoothedSpeed(rawSpeed);
     
-    // Convert to km/h or mph
-    const currentSpeed = smoothedSpeed * (useMetric ? 3.6 : 2.237);
+    // Convert to desired unit
+    const currentSpeed = convertSpeed(smoothedSpeed);
     
     setSpeed(currentSpeed);
     setSpeedHistory(prev => [...prev, currentSpeed]);
     
-    if (lastPosition && smoothedSpeed > 0) {
+    // Calculate distance if we have a previous position
+    if (lastPosition) {
       const newDistance = calculateDistance(
         lastPosition.coords.latitude,
         lastPosition.coords.longitude,
@@ -60,8 +66,9 @@ export const useGeolocation = (useMetric: boolean): UseGeolocationReturn => {
         position.coords.longitude,
         useMetric
       );
-      // Only add distance if speed is above threshold
-      if (smoothedSpeed > SPEED_THRESHOLD) {
+      
+      // Only add distance if it's reasonable (avoid GPS jumps)
+      if (newDistance > 0 && newDistance < 0.1) { // Max 100m per update
         setDistance(prev => prev + newDistance);
       }
     }
@@ -102,7 +109,7 @@ export const useGeolocation = (useMetric: boolean): UseGeolocationReturn => {
             {
               enableHighAccuracy: true,
               timeout: 5000,
-              maximumAge: 0,
+              maximumAge: 0
             }
           );
           setWatchId(id);
